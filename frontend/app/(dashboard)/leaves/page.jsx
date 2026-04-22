@@ -1,254 +1,520 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { 
-  FileText, 
-  Plus, 
-  Calendar, 
-  CheckCircle, 
-  XCircle, 
-  Clock,
-  Filter
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarDays, CheckCircle2, Clock3, Plus, Search, XCircle } from "lucide-react";
+import { toast, Toaster } from "sonner";
+import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import api from "@/lib/api";
+import ApplyLeaveModal from "@/components/leaves/ApplyLeaveModal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
+
+const statusBadgeClass = (status) => {
+  if (status === "approved") return "bg-green-100 text-green-800";
+  if (status === "pending") return "bg-amber-100 text-amber-800";
+  if (status === "rejected") return "bg-red-100 text-red-800";
+  if (status === "cancelled") return "bg-slate-200 text-slate-700";
+  return "bg-slate-200 text-slate-700";
+};
+
+const leaveTypeLabel = (type) => {
+  if (type === "annual") return "Annual";
+  if (type === "sick") return "Sick";
+  if (type === "personal") return "Personal";
+  return "Unpaid";
+};
+
+const getUsageColor = (percentage) => {
+  if (percentage > 80) return "bg-red-500";
+  if (percentage >= 50) return "bg-amber-500";
+  return "bg-green-500";
+};
+
+const isTodayWithinRange = (fromDate, toDate) => {
+  const today = new Date();
+  const start = new Date(`${fromDate}T00:00:00`);
+  const end = new Date(`${toDate}T23:59:59`);
+  return today >= start && today <= end;
+};
 
 export default function LeavesPage() {
-  const [leaves, setLeaves] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [leaves, setLeaves] = useState([]);
+  const [leaveBalance, setLeaveBalance] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [cancelLeaveId, setCancelLeaveId] = useState(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [adminNotes, setAdminNotes] = useState({});
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [leavesRes, userRes] = await Promise.all([
-          api.get("/leaves"),
-          api.get("/auth/me")
-        ]);
-        setLeaves(leavesRes.data.data);
-        setUser(userRes.data.data);
-      } catch (error) {
-        console.error("Failed to fetch leaves data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
-
-  const handleStatusUpdate = async (id, status) => {
-    try {
-      await api.put(`/leaves/${id}/status`, { status });
-      // Refresh list
-      const { data } = await api.get("/leaves");
-      setLeaves(data.data);
-    } catch (error) {
-      console.error("Failed to update leave status:", error);
-    }
-  };
-
-  const [showApplyForm, setShowApplyForm] = useState(false);
-  const [formLoading, setFormLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    type: "annual",
-    from_date: "",
-    to_date: "",
-    reason: ""
+  const [filters, setFilters] = useState({
+    status: "",
+    type: "",
+    year: new Date().getFullYear(),
+    month: "",
+    search: ""
   });
 
-  const handleApplySubmit = async (e) => {
-    e.preventDefault();
-    setFormLoading(true);
+  const isAdmin = user?.role === "admin";
+
+  const fetchLeaves = useCallback(async (authUser) => {
+    if (!authUser) return;
+
+    if (authUser.role === "admin") {
+      const query = new URLSearchParams({
+        page: "1",
+        limit: "200"
+      });
+      if (filters.status) query.append("status", filters.status);
+      if (filters.type) query.append("type", filters.type);
+      if (filters.year) query.append("year", String(filters.year));
+      if (filters.search) query.append("search", filters.search);
+
+      const leavesRes = await api.get(`/leaves?${query.toString()}`);
+      const baseRows = leavesRes.data.data || [];
+      const monthFiltered = filters.month
+        ? baseRows.filter((row) => new Date(row.from_date).getMonth() + 1 === Number(filters.month))
+        : baseRows;
+
+      setLeaves(monthFiltered);
+      return;
+    }
+
+    const [leavesRes, balanceRes] = await Promise.all([
+      api.get("/leaves?page=1&limit=200"),
+      api.get(`/leaves/balance/${authUser.id}`)
+    ]);
+    setLeaves(leavesRes.data.data || []);
+    setLeaveBalance(balanceRes.data.data);
+  }, [filters]);
+
+  const refreshPageData = useCallback(async () => {
     try {
-      await api.post("/leaves", formData);
-      setShowApplyForm(false);
-      setFormData({ type: "annual", from_date: "", to_date: "", reason: "" });
-      // Refresh list
-      const { data } = await api.get("/leaves");
-      setLeaves(data.data);
+      setIsLoading(true);
+      const userRes = await api.get("/auth/me");
+      const authUser = userRes.data.data;
+      setUser(authUser);
+      await fetchLeaves(authUser);
     } catch (error) {
-      console.error("Failed to submit leave request:", error);
+      console.error("Failed to fetch leave data:", error);
+      toast.error("Failed to load leave data");
     } finally {
-      setFormLoading(false);
+      setIsLoading(false);
+    }
+  }, [fetchLeaves]);
+
+  useEffect(() => {
+    refreshPageData();
+  }, [refreshPageData]);
+
+  useEffect(() => {
+    if (!user?.id || user.role !== "admin") return;
+    fetchLeaves(user).catch((error) => {
+      console.error("Failed to apply leave filters:", error);
+      toast.error("Failed to update filtered leaves");
+    });
+  }, [filters, user, fetchLeaves]);
+
+  const handleApproveReject = async (leaveId, action) => {
+    const adminNote = adminNotes[leaveId] || "";
+
+    if (action === "reject" && !adminNote.trim()) {
+      toast.error("Admin note is required to reject a leave");
+      return;
+    }
+
+    try {
+      setIsUpdating(true);
+      await api.put(`/leaves/${leaveId}/${action}`, { admin_note: adminNote.trim() || null });
+      toast.success(`Leave ${action}d successfully`);
+      setAdminNotes((prev) => ({ ...prev, [leaveId]: "" }));
+      await fetchLeaves(user);
+    } catch (error) {
+      const message = error?.response?.data?.message || `Failed to ${action} leave`;
+      toast.error(message);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
-  if (loading) return <Skeleton className="h-96 w-full" />;
+  const handleCancelLeave = async () => {
+    if (!cancelLeaveId) return;
+    try {
+      setIsUpdating(true);
+      await api.put(`/leaves/${cancelLeaveId}/cancel`);
+      toast.success("Leave request cancelled");
+      setCancelLeaveId(null);
+      await fetchLeaves(user);
+    } catch (error) {
+      const message = error?.response?.data?.message || "Failed to cancel leave request";
+      toast.error(message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
-  const isAdmin = user?.role === 'admin' || user?.role === 'team_lead';
+  const adminSummary = useMemo(() => {
+    const now = new Date();
+    const pending = leaves.filter((leave) => leave.status === "pending").length;
+    const approvedThisMonth = leaves.filter((leave) => {
+      if (leave.status !== "approved" || !leave.reviewed_at) return false;
+      const reviewedDate = new Date(leave.reviewed_at);
+      return reviewedDate.getMonth() === now.getMonth() && reviewedDate.getFullYear() === now.getFullYear();
+    }).length;
+    const rejectedThisMonth = leaves.filter((leave) => {
+      if (leave.status !== "rejected" || !leave.reviewed_at) return false;
+      const reviewedDate = new Date(leave.reviewed_at);
+      return reviewedDate.getMonth() === now.getMonth() && reviewedDate.getFullYear() === now.getFullYear();
+    }).length;
+    const onLeaveToday = new Set(
+      leaves
+        .filter((leave) => leave.status === "approved" && isTodayWithinRange(leave.from_date, leave.to_date))
+        .map((leave) => leave.user_id)
+    ).size;
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-800">Leave Management</h1>
-        {!isAdmin && (
-          <Button 
-            onClick={() => setShowApplyForm(!showApplyForm)}
-            className="flex items-center gap-2 bg-brand-orange hover:bg-brand-orange-light text-white rounded-xl"
-          >
-            {showApplyForm ? "Cancel Request" : <><Plus className="w-4 h-4" /> Apply for Leave</>}
-          </Button>
-        )}
+    return { pending, approvedThisMonth, rejectedThisMonth, onLeaveToday };
+  }, [leaves]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-24 w-full rounded-2xl" />
+        <Skeleton className="h-96 w-full rounded-2xl" />
       </div>
+    );
+  }
 
-      {showApplyForm && (
-        <Card className="border-0 shadow-premium overflow-hidden rounded-2xl animate-in slide-in-from-top-4">
-          <div className="h-2 w-full bg-brand-orange"></div>
+  if (!isAdmin) {
+    const annualUsed = leaveBalance?.annual_used || 0;
+    const annualTotal = leaveBalance?.annual_total || 20;
+    const sickUsed = leaveBalance?.sick_used || 0;
+    const sickTotal = leaveBalance?.sick_total || 10;
+    const personalUsed = leaveBalance?.personal_used || 0;
+    const personalTotal = leaveBalance?.personal_total || 5;
+
+    const balanceCards = [
+      { title: "Annual Leave", used: annualUsed, total: annualTotal },
+      { title: "Sick Leave", used: sickUsed, total: sickTotal },
+      { title: "Personal Leave", used: personalUsed, total: personalTotal }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <Toaster position="top-right" richColors />
+
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-slate-800">Leave Management</h1>
+          <Button onClick={() => setIsApplyModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Apply for Leave
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {balanceCards.map((card) => {
+            const percentage = card.total > 0 ? Math.round((card.used / card.total) * 100) : 0;
+            return (
+              <Card key={card.title} className="rounded-xl border-0 shadow-sm">
+                <CardContent className="space-y-3 pt-6">
+                  <p className="text-sm font-semibold text-slate-700">{card.title}</p>
+                  <p className="text-2xl font-bold text-slate-900">
+                    {card.used} / {card.total} days used
+                  </p>
+                  <div className="h-2 w-full rounded-full bg-slate-200">
+                    <div
+                      className={`h-2 rounded-full ${getUsageColor(percentage)}`}
+                      style={{ width: `${Math.min(percentage, 100)}%` }}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        <Card className="rounded-2xl border-0 shadow-premium">
           <CardHeader>
-            <CardTitle className="text-lg text-brand-navy">Apply for Leave</CardTitle>
+            <CardTitle>My Leave History</CardTitle>
           </CardHeader>
-          <CardContent className="p-6 pt-0">
-            <form onSubmit={handleApplySubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">Leave Type</label>
-                  <select 
-                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
-                    value={formData.type}
-                    onChange={(e) => setFormData({...formData, type: e.target.value})}
-                    required
-                  >
-                    <option value="annual">Annual Leave</option>
-                    <option value="sick">Sick Leave</option>
-                    <option value="casual">Casual Leave</option>
-                    <option value="unpaid">Unpaid Leave</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">From Date</label>
-                  <input 
-                    type="date"
-                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
-                    value={formData.from_date}
-                    onChange={(e) => setFormData({...formData, from_date: e.target.value})}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-semibold">To Date</label>
-                  <input 
-                    type="date"
-                    className="w-full h-11 px-3 rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-orange/20"
-                    value={formData.to_date}
-                    onChange={(e) => setFormData({...formData, to_date: e.target.value})}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold">Reason</label>
-                <textarea 
-                  className="w-full p-3 rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-orange/20 min-h-[100px]"
-                  placeholder="Explain why you are taking the leave..."
-                  value={formData.reason}
-                  onChange={(e) => setFormData({...formData, reason: e.target.value})}
-                  required
-                />
-              </div>
-              <div className="flex justify-end">
-                <Button 
-                  type="submit" 
-                  disabled={formLoading}
-                  className="bg-brand-navy hover:bg-brand-navy/90 text-white rounded-xl px-10 h-11"
-                >
-                  {formLoading ? "Submitting..." : "Submit Leave Request"}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Leave Requests</CardTitle>
-            <Button variant="outline" size="sm" className="flex items-center gap-2">
-              <Filter className="w-4 h-4" /> Filter
-            </Button>
-          </CardHeader>
-          <CardContent className="p-0">
+          <CardContent>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full min-w-[760px] text-left">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-600 text-xs font-semibold uppercase tracking-wider">
-                    <th className="px-6 py-4">Staff</th>
-                    <th className="px-6 py-4">Type</th>
-                    <th className="px-6 py-4">Duration</th>
-                    <th className="px-6 py-4">Reason</th>
-                    <th className="px-6 py-4">Status</th>
-                    {isAdmin && <th className="px-6 py-4 text-right">Actions</th>}
+                  <tr className="border-b border-slate-100 text-xs uppercase text-slate-500">
+                    <th className="px-2 py-3">Type</th>
+                    <th className="px-2 py-3">From</th>
+                    <th className="px-2 py-3">To</th>
+                    <th className="px-2 py-3">Days</th>
+                    <th className="px-2 py-3">Reason</th>
+                    <th className="px-2 py-3">Status</th>
+                    <th className="px-2 py-3">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {leaves.length > 0 ? (
-                    leaves.map((leave) => (
-                      <tr key={leave.id} className="hover:bg-slate-50">
-                        <td className="px-6 py-4">
-                          <p className="font-medium text-slate-800">{leave.staff_name}</p>
-                          <p className="text-xs text-slate-500">{new Date(leave.created_at).toLocaleDateString()}</p>
-                        </td>
-                        <td className="px-6 py-4 capitalize text-sm">{leave.type}</td>
-                        <td className="px-6 py-4 text-sm">
-                          <div className="flex flex-col">
-                            <span>{new Date(leave.from_date).toLocaleDateString()}</span>
-                            <span className="text-slate-400">to</span>
-                            <span>{new Date(leave.to_date).toLocaleDateString()}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate">
-                          {leave.reason}
-                        </td>
-                        <td className="px-6 py-4">
-                          <Badge 
-                            variant={leave.status === 'approved' ? 'default' : leave.status === 'rejected' ? 'destructive' : 'secondary'}
-                            className="capitalize"
-                          >
-                            {leave.status}
-                          </Badge>
-                        </td>
-                        {isAdmin && (
-                          <td className="px-6 py-4 text-right">
-                            {leave.status === 'pending' && (
-                              <div className="flex items-center justify-end gap-2">
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => handleStatusUpdate(leave.id, 'approved')}
-                                >
-                                  <CheckCircle className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => handleStatusUpdate(leave.id, 'rejected')}
-                                >
-                                  <XCircle className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            )}
-                          </td>
+                <tbody>
+                  {leaves.map((leave) => (
+                    <tr key={leave.id} className="border-b border-slate-50 text-sm">
+                      <td className="px-2 py-3">
+                        <Badge className="bg-slate-100 text-slate-700">{leaveTypeLabel(leave.type)}</Badge>
+                      </td>
+                      <td className="px-2 py-3">{new Date(leave.from_date).toLocaleDateString("en-NZ")}</td>
+                      <td className="px-2 py-3">{new Date(leave.to_date).toLocaleDateString("en-NZ")}</td>
+                      <td className="px-2 py-3">{leave.total_days}</td>
+                      <td className="px-2 py-3">{leave.reason}</td>
+                      <td className="px-2 py-3">
+                        <Badge className={statusBadgeClass(leave.status)}>{leave.status}</Badge>
+                      </td>
+                      <td className="px-2 py-3">
+                        {leave.status === "pending" ? (
+                          <Button variant="outline" size="sm" onClick={() => setCancelLeaveId(leave.id)}>
+                            Cancel
+                          </Button>
+                        ) : (
+                          "--"
                         )}
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={isAdmin ? 6 : 5} className="px-6 py-12 text-center text-slate-500">
-                        No leave requests found.
                       </td>
                     </tr>
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
           </CardContent>
         </Card>
+
+        <ApplyLeaveModal
+          isOpen={isApplyModalOpen}
+          onOpenChange={setIsApplyModalOpen}
+          leaveBalance={leaveBalance}
+          onSuccess={() => fetchLeaves(user)}
+        />
+
+        <AlertDialog open={Boolean(cancelLeaveId)} onOpenChange={(open) => !open && setCancelLeaveId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Cancel Leave Request?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will cancel your pending leave request. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep Request</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleCancelLeave}
+                className="bg-red-600 text-white hover:bg-red-700"
+                disabled={isUpdating}
+              >
+                {isUpdating ? "Cancelling..." : "Cancel Leave"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
+    );
+  }
+
+  const pendingLeaves = leaves.filter((leave) => leave.status === "pending");
+
+  return (
+    <div className="space-y-6">
+      <Toaster position="top-right" richColors />
+
+      <h1 className="text-2xl font-bold text-slate-800">Leave Management</h1>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <Card className="rounded-xl border-0 shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-xs uppercase text-slate-500">Pending Approvals</p>
+            <p className="mt-2 text-3xl font-bold text-amber-700">{adminSummary.pending}</p>
+          </CardContent>
+        </Card>
+        <Card className="rounded-xl border-0 shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-xs uppercase text-slate-500">Approved This Month</p>
+            <p className="mt-2 text-3xl font-bold text-green-700">{adminSummary.approvedThisMonth}</p>
+          </CardContent>
+        </Card>
+        <Card className="rounded-xl border-0 shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-xs uppercase text-slate-500">Rejected This Month</p>
+            <p className="mt-2 text-3xl font-bold text-red-700">{adminSummary.rejectedThisMonth}</p>
+          </CardContent>
+        </Card>
+        <Card className="rounded-xl border-0 shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-xs uppercase text-slate-500">Staff On Leave Today</p>
+            <p className="mt-2 text-3xl font-bold text-brand-navy">{adminSummary.onLeaveToday}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="rounded-2xl border border-amber-200 bg-amber-50/40 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-amber-900">
+            <Clock3 className="h-5 w-5" />
+            Pending Approvals
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {pendingLeaves.length === 0 && (
+            <p className="text-sm text-slate-600">No pending approvals right now.</p>
+          )}
+
+          {pendingLeaves.map((leave) => (
+            <div key={leave.id} className="rounded-xl border border-amber-100 bg-white p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="font-semibold text-slate-800">{leave.staff_name}</p>
+                  <p className="text-sm text-slate-600">
+                    {leaveTypeLabel(leave.type)} | {new Date(leave.from_date).toLocaleDateString("en-NZ")} to{" "}
+                    {new Date(leave.to_date).toLocaleDateString("en-NZ")} | {leave.total_days} day(s)
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">{leave.reason}</p>
+                </div>
+                <Badge className={statusBadgeClass(leave.status)}>{leave.status}</Badge>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                <input
+                  value={adminNotes[leave.id] || ""}
+                  onChange={(event) =>
+                    setAdminNotes((prev) => ({ ...prev, [leave.id]: event.target.value }))
+                  }
+                  placeholder="Admin note (required for reject)"
+                  className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleApproveReject(leave.id, "approve")}
+                    className="bg-green-600 text-white hover:bg-green-700"
+                    disabled={isUpdating}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Approve
+                  </Button>
+                  <Button
+                    onClick={() => handleApproveReject(leave.id, "reject")}
+                    className="bg-red-600 text-white hover:bg-red-700"
+                    disabled={isUpdating}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-premium">
+        <CardHeader className="space-y-4">
+          <CardTitle className="flex items-center gap-2 text-slate-800">
+            <CalendarDays className="h-5 w-5 text-brand-orange" />
+            All Leaves
+          </CardTitle>
+
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+            <select
+              value={filters.status}
+              onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
+              className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm"
+            >
+              <option value="">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+
+            <select
+              value={filters.type}
+              onChange={(event) => setFilters((prev) => ({ ...prev, type: event.target.value }))}
+              className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm"
+            >
+              <option value="">All Types</option>
+              <option value="annual">Annual</option>
+              <option value="sick">Sick</option>
+              <option value="personal">Personal</option>
+              <option value="unpaid">Unpaid</option>
+            </select>
+
+            <select
+              value={filters.month}
+              onChange={(event) => setFilters((prev) => ({ ...prev, month: event.target.value }))}
+              className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm"
+            >
+              <option value="">All Months</option>
+              {Array.from({ length: 12 }).map((_, idx) => (
+                <option key={idx + 1} value={idx + 1}>
+                  {idx + 1}
+                </option>
+              ))}
+            </select>
+
+            <input
+              type="number"
+              value={filters.year}
+              onChange={(event) => setFilters((prev) => ({ ...prev, year: Number(event.target.value) }))}
+              className="h-10 rounded-md border border-slate-200 px-3 text-sm"
+            />
+
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={filters.search}
+                onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
+                placeholder="Search staff"
+                className="h-10 w-full rounded-md border border-slate-200 pl-9 pr-3 text-sm"
+              />
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-left">
+              <thead>
+                <tr className="border-b border-slate-100 text-xs uppercase text-slate-500">
+                  <th className="px-2 py-3">Staff</th>
+                  <th className="px-2 py-3">Type</th>
+                  <th className="px-2 py-3">From</th>
+                  <th className="px-2 py-3">To</th>
+                  <th className="px-2 py-3">Days</th>
+                  <th className="px-2 py-3">Applied On</th>
+                  <th className="px-2 py-3">Status</th>
+                  <th className="px-2 py-3">Reviewed By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaves.map((leave) => (
+                  <tr key={leave.id} className="border-b border-slate-50 text-sm">
+                    <td className="px-2 py-3 font-semibold text-slate-800">{leave.staff_name}</td>
+                    <td className="px-2 py-3">{leaveTypeLabel(leave.type)}</td>
+                    <td className="px-2 py-3">{new Date(leave.from_date).toLocaleDateString("en-NZ")}</td>
+                    <td className="px-2 py-3">{new Date(leave.to_date).toLocaleDateString("en-NZ")}</td>
+                    <td className="px-2 py-3">{leave.total_days}</td>
+                    <td className="px-2 py-3">{new Date(leave.created_at).toLocaleDateString("en-NZ")}</td>
+                    <td className="px-2 py-3">
+                      <Badge className={statusBadgeClass(leave.status)}>{leave.status}</Badge>
+                    </td>
+                    <td className="px-2 py-3">{leave.reviewed_by_name || "--"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

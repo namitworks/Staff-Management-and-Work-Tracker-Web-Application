@@ -6,9 +6,11 @@ const {
   getStaffById, 
   createStaff, 
   updateStaff, 
-  deleteStaff 
+  deleteStaff,
+  uploadAvatar
 } = require('../controllers/staffController');
 const { verifyToken, requireRole } = require('../middleware/auth');
+const upload = require('../middleware/upload');
 
 // Validation middleware
 const validate = (req, res, next) => {
@@ -35,7 +37,8 @@ const staffValidation = [
 router.get('/', verifyToken, requireRole('admin', 'team_lead'), getAllStaff);
 router.get('/:id', verifyToken, getStaffById);
 router.post('/', verifyToken, requireRole('admin'), staffValidation, createStaff);
-router.put('/:id', verifyToken, requireRole('admin'), staffValidation, updateStaff);
+router.put('/:id', verifyToken, updateStaff);
+router.post('/:id/avatar', verifyToken, requireRole('admin'), upload.single('avatar'), uploadAvatar);
 router.delete('/:id', verifyToken, requireRole('admin'), deleteStaff);
 
 module.exports = router;

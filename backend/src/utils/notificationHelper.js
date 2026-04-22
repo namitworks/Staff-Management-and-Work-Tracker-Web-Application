@@ -1,4 +1,4 @@
-const db = require('../config/db');
+const pool = require('../../db/connection');
 
 /**
  * Helper to create a notification in the database
@@ -10,7 +10,7 @@ const createNotification = async (userId, title, message, type = 'info', categor
         (user_id, title, message, type, category, link)
       VALUES (?, ?, ?, ?, ?, ?)
     `;
-    const [result] = await db.execute(query, [userId, title, message, type, category, link]);
+    const [result] = await pool.execute(query, [userId, title, message, type, category, link]);
     return result;
   } catch (error) {
     console.error('Error creating notification:', error);

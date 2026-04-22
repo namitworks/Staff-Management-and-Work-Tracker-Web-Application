@@ -1,20 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const idCardController = require('../controllers/idCardController');
-const { verifyToken, requireRole, requireOwnOrAdmin } = require('../middleware/auth');
+const { verifyToken, requireRole } = require('../middleware/auth');
 
-// 1. Generate ID Card - POST /api/idcards/generate (Admin only)
+// 1. Request ID Card - POST /api/idcards/request (Staff own request)
+router.post('/request', verifyToken, idCardController.requestIdCard);
+
+// 2. Generate ID Card - POST /api/idcards/generate (Admin only)
 router.post('/generate', verifyToken, requireRole('admin'), idCardController.generateIdCard);
 
-// 2. Get ID Card History - GET /api/idcards/history/:userId (Admin only)
-router.get('/history/:userId', verifyToken, requireRole('admin'), idCardController.getIdCardHistory);
+// 3. Reject ID Card Request - PUT /api/idcards/:userId/reject (Admin only)
+router.put('/:userId/reject', verifyToken, requireRole('admin'), idCardController.rejectIdCardRequest);
 
-// 3. Get Staff ID Card Data - GET /api/idcards/:userId (Admin or own staff)
-// Note: using requireOwnOrAdmin needs to read user id from params or body, 
-// wait, we can just check if req.user.role === 'admin' || req.user.userId === req.params.userId
-// Let's implement this logic in controller or middleware, but standard requireOwnOrAdmin might be in auth middleware.
-// Let's check auth.js first. Assuming it exists.
-// We will register the route:
+// 4. Get ID Card History - GET /api/idcards/history/:userId (Admin/own access)
+router.get('/history/:userId', verifyToken, idCardController.getIdCardHistory);
+
+// 5. Get Staff ID Card Data - GET /api/idcards/:userId (Admin/own access)
 router.get('/:userId', verifyToken, idCardController.getStaffIdCardData);
 
 module.exports = router;

@@ -10,7 +10,8 @@ const getAllStaff = async (req, res) => {
     }
     const [rows] = await pool.query(`
       SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
-             p.phone, p.department, p.joining_date, p.avatar_url
+             p.phone, p.department, p.joining_date, p.avatar_url,
+             p.staff_id, p.valid_until, p.id_card_generated_at, p.id_card_status
       FROM users u
       LEFT JOIN staff_profiles p ON u.id = p.user_id
       WHERE u.is_deleted = 0 AND u.role != 'admin'
@@ -38,22 +39,33 @@ const getStaffById = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Forbidden', error: 'FORBIDDEN' });
     }
 
-    const [rows] = await pool.query(`
-      SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
-             p.phone, p.address, p.department, p.joining_date, p.emergency_contact, p.avatar_url
-      FROM users u
-      LEFT JOIN staff_profiles p ON u.id = p.user_id
-      WHERE u.id = ? AND u.is_deleted = 0
-    `, [id]);
+    const [userRows] = await pool.query(
+      `SELECT id, name, email, role, status, created_at
+       FROM users
+       WHERE id = ? AND is_deleted = 0`,
+      [id]
+    );
 
-    if (rows.length === 0) {
+    if (!userRows.length) {
       return res.status(404).json({ success: false, message: 'Staff not found', error: 'NOT_FOUND' });
     }
+
+    const [profileRows] = await pool.query(
+      'SELECT * FROM staff_profiles WHERE user_id = ?',
+      [id]
+    );
+
+    const profile = profileRows[0] || {};
+    const user = userRows[0];
 
     res.status(200).json({
       success: true,
       message: 'Staff details fetched',
-      data: rows[0]
+      data: {
+        ...profile,
+        ...user,
+        id: user.id
+      }
     });
   } catch (error) {
     console.error('GetStaffById Error:', error);
@@ -117,36 +129,127 @@ const createStaff = async (req, res) => {
 
 // Update staff (Admin only)
 const updateStaff = async (req, res) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ success: false, message: 'Forbidden', error: 'FORBIDDEN' });
-  }
   const connection = await pool.getConnection();
+  let transactionStarted = false;
   try {
+    const targetUserId = Number(req.params.id);
+    const isAdmin = req.user.role === 'admin';
+    const isSelf = Number(req.user.id) === targetUserId;
+
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid staff id',
+        error: 'VALIDATION_FAILED'
+      });
+    }
+
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only update your own profile',
+        error: 'FORBIDDEN'
+      });
+    }
+
+    const [columnRows] = await connection.query(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'staff_profiles'`
+    );
+    const profileColumns = new Set(columnRows.map((row) => row.COLUMN_NAME));
+
+    const userUpdates = [];
+    const userParams = [];
+    if (typeof req.body.name === 'string' && req.body.name.trim()) {
+      userUpdates.push('name = ?');
+      userParams.push(req.body.name.trim());
+    }
+    if (typeof req.body.email === 'string' && req.body.email.trim()) {
+      userUpdates.push('email = ?');
+      userParams.push(req.body.email.trim().toLowerCase());
+    }
+    if (isAdmin && typeof req.body.role === 'string' && req.body.role.trim()) {
+      userUpdates.push('role = ?');
+      userParams.push(req.body.role.trim());
+    }
+    if (isAdmin && typeof req.body.status === 'string' && req.body.status.trim()) {
+      userUpdates.push('status = ?');
+      userParams.push(req.body.status.trim());
+    }
+
+    const personalFields = [
+      'phone',
+      'address',
+      'emergency_contact_name',
+      'emergency_contact_phone',
+      'blood_group',
+      'date_of_birth'
+    ];
+    const adminOnlyFields = [
+      'department',
+      'joining_date',
+      'employment_type',
+      'reporting_to',
+      'ird_number',
+      'tax_code',
+      'kiwisaver_rate',
+      'bank_name',
+      'bank_account_number'
+    ];
+
+    const profileUpdates = [];
+    const profileParams = [];
+    const allowedProfileFields = isAdmin ? [...personalFields, ...adminOnlyFields] : personalFields;
+
+    for (const field of allowedProfileFields) {
+      if (!(field in req.body) || !profileColumns.has(field)) continue;
+      profileUpdates.push(`${field} = ?`);
+      profileParams.push(req.body[field] === '' ? null : req.body[field]);
+    }
+
+    if (!userUpdates.length && !profileUpdates.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid fields provided for update',
+        error: 'VALIDATION_FAILED'
+      });
+    }
+
     await connection.beginTransaction();
+    transactionStarted = true;
 
-    const { id } = req.params;
-    const { name, email, role, status, phone, address, department, joining_date } = req.body;
+    if (userUpdates.length) {
+      userParams.push(targetUserId);
+      await connection.query(
+        `UPDATE users
+         SET ${userUpdates.join(', ')}
+         WHERE id = ?`,
+        userParams
+      );
+    }
 
-    // Update user
-    await connection.query(
-      'UPDATE users SET name = ?, email = ?, role = ?, status = ? WHERE id = ?',
-      [name, email, role, status, id]
-    );
-
-    // Update profile
-    await connection.query(
-      'UPDATE staff_profiles SET phone = ?, address = ?, department = ?, joining_date = ? WHERE user_id = ?',
-      [phone, address, department, joining_date, id]
-    );
+    if (profileUpdates.length) {
+      profileParams.push(targetUserId);
+      await connection.query(
+        `UPDATE staff_profiles
+         SET ${profileUpdates.join(', ')}
+         WHERE user_id = ?`,
+        profileParams
+      );
+    }
 
     await connection.commit();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: 'Staff updated successfully'
+      message: 'Profile updated successfully'
     });
   } catch (error) {
-    await connection.rollback();
+    if (transactionStarted) {
+      await connection.rollback();
+    }
     console.error('UpdateStaff Error:', error);
     res.status(500).json({ success: false, message: 'Server error', error: 'SERVER_ERROR' });
   } finally {
@@ -173,10 +276,65 @@ const deleteStaff = async (req, res) => {
   }
 };
 
+const uploadAvatar = async (req, res) => {
+  try {
+    const targetUserId = Number(req.params.id);
+
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid staff id',
+        error: 'VALIDATION_FAILED'
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: 'Avatar file is required',
+        error: 'VALIDATION_FAILED'
+      });
+    }
+
+    const [staffRows] = await pool.query(
+      'SELECT user_id FROM staff_profiles WHERE user_id = ?',
+      [targetUserId]
+    );
+
+    if (!staffRows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Staff profile not found',
+        error: 'NOT_FOUND'
+      });
+    }
+
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    await pool.query(
+      'UPDATE staff_profiles SET avatar_url = ? WHERE user_id = ?',
+      [avatarUrl, targetUserId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Avatar uploaded successfully',
+      data: { avatar_url: avatarUrl }
+    });
+  } catch (error) {
+    console.error('UploadAvatar Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to upload avatar',
+      error: 'SERVER_ERROR'
+    });
+  }
+};
+
 module.exports = {
   getAllStaff,
   getStaffById,
   createStaff,
   updateStaff,
-  deleteStaff
+  deleteStaff,
+  uploadAvatar
 };

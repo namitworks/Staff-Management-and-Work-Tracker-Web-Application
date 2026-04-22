@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { Bell, User, Menu, X } from "lucide-react";
+import { Bell, User, Menu, X, CheckSquare, CalendarClock, FileText, TrendingUp, Banknote, Info } from "lucide-react";
 import api from "@/lib/api";
 
 export default function Header({ toggleSidebar, isSidebarOpen }) {
@@ -38,7 +38,7 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
       const { data } = await api.get("/notifications");
       if (data.success) {
         setNotifications(data.data.slice(0, 10)); // Only show last 10 in dropdown
-        setUnreadCount(data.unreadCount);
+        setUnreadCount(data.unread_count ?? data.unreadCount ?? 0);
       }
     } catch (err) {
       console.error("Failed to fetch notifications", err);
@@ -89,6 +89,15 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
     return `${diffDays} days ago`;
   };
 
+  const getCategoryIcon = (category) => {
+    if (category === "task") return <CheckSquare className="w-4 h-4 text-blue-600" />;
+    if (category === "leave") return <FileText className="w-4 h-4 text-amber-600" />;
+    if (category === "attendance") return <CalendarClock className="w-4 h-4 text-emerald-600" />;
+    if (category === "performance") return <TrendingUp className="w-4 h-4 text-purple-600" />;
+    if (category === "payslip") return <Banknote className="w-4 h-4 text-indigo-600" />;
+    return <Info className="w-4 h-4 text-slate-500" />;
+  };
+
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-[72px] px-4 md:px-8 glass shadow-sm transition-all duration-300 w-full">
       <div className="flex items-center gap-4">
@@ -110,7 +119,9 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
           >
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-brand-orange rounded-full border-2 border-white"></span>
+              <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
             )}
           </button>
 
@@ -141,15 +152,20 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
                         onClick={() => handleNotificationClick(notif)}
                         className={`p-4 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors ${!notif.is_read ? 'bg-brand-orange/[0.02]' : 'opacity-70'}`}
                       >
-                        <p className={`text-sm ${!notif.is_read ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
-                          {notif.title}
-                        </p>
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                          {notif.message}
-                        </p>
-                        <p className={`text-[10px] mt-2 font-medium ${!notif.is_read ? 'text-brand-orange' : 'text-slate-400'}`}>
-                          {getTimeAgo(notif.created_at)}
-                        </p>
+                        <div className="flex gap-2">
+                          <div className="mt-0.5">{getCategoryIcon(notif.category)}</div>
+                          <div className="min-w-0">
+                            <p className={`text-sm ${!notif.is_read ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
+                              {notif.title}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                              {notif.message}
+                            </p>
+                            <p className={`text-[10px] mt-2 font-medium ${!notif.is_read ? 'text-brand-orange' : 'text-slate-400'}`}>
+                              {getTimeAgo(notif.created_at)}
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     ))
                   )}

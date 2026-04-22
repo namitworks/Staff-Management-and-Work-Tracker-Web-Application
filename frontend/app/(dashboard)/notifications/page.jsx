@@ -61,6 +61,16 @@ export default function NotificationsPage() {
     }
   };
 
+  const clearAll = async () => {
+    try {
+      await api.delete("/notifications/clear-all");
+      setNotifications([]);
+      toast.success("All notifications cleared");
+    } catch (err) {
+      toast.error("Failed to clear notifications");
+    }
+  };
+
   const filteredNotifications = notifications.filter(n => {
     if (filter === "unread") return !n.is_read;
     if (filter === "all") return true;
@@ -93,6 +103,15 @@ export default function NotificationsPage() {
           >
             <Check className="w-4 h-4 mr-2" />
             Mark all as read
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={clearAll}
+            disabled={notifications.length === 0}
+          >
+            <Trash2 className="w-4 h-4 mr-2" />
+            Clear All
           </Button>
         </div>
       </div>
@@ -145,7 +164,7 @@ export default function NotificationsPage() {
           </div>
           <div className="space-y-1">
             <h3 className="font-bold text-slate-700">No notifications found</h3>
-            <p className="text-slate-500 text-sm">You're all caught up!</p>
+            <p className="text-slate-500 text-sm">You&apos;re all caught up!</p>
           </div>
         </Card>
       ) : (
