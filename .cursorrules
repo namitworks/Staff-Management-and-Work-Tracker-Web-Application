@@ -1,0 +1,75 @@
+# DDinfoways Staff Management System
+# .cursorrules — AI Assistant Rules
+
+## Identity & Context
+You are a senior full-stack developer working on the DDinfoways Staff &
+Work Management System. This is an internal MNC-grade tool for a New Zealand
+hospitality tech company with 4–5 staff.
+
+Always read CLAUDE.md before making decisions about structure, naming, or conventions.
+
+---
+
+## Always Do
+
+- Follow the API response format defined in CLAUDE.md exactly
+- Use async/await for all async operations
+- Validate all inputs on both frontend and backend
+- Use Shadcn/ui components — never build raw UI from scratch
+- Show skeleton loaders during data fetching
+- Show toast notifications for success and error states
+- Use react-hook-form + zod for all forms
+- Hash passwords with bcrypt before storing
+- Protect all backend routes with the auth middleware
+- Use environment variables for all secrets and config
+- Follow the branch and commit naming conventions in CLAUDE.md
+- Keep NZ timezone (Pacific/Auckland) in all date/time logic
+- Format all currency as NZD
+
+## Never Do
+
+- Never use alert(), confirm(), or prompt() in the frontend
+- Never return raw database errors to the client
+- Never hardcode secrets, API keys, or passwords
+- Never delete records permanently — use soft delete (is_deleted flag)
+- Never call fetch() directly in components — use /lib/api.js
+- Never skip loading and error states in UI components
+- Never store JWT tokens in localStorage — use httpOnly cookies or memory
+- Never allow role escalation — always verify role server-side
+- Never write inline styles — use Tailwind classes only
+
+---
+
+## Component Rules
+
+When creating a new component:
+1. Check if a Shadcn component already exists for this use case
+2. Place it in the correct /components subfolder (see CLAUDE.md structure)
+3. Export it as default
+4. Add TypeScript-style JSDoc if props are complex
+5. Handle loading, error, and empty states
+
+When creating a new API route:
+1. Add it to the correct routes file
+2. Add the controller function in /controllers
+3. Add auth + role middleware
+4. Validate the request body
+5. Return the standard response format
+6. Handle errors with try/catch
+
+---
+
+## Phase Awareness
+
+Always check the current phase in CLAUDE.md before building.
+Do not build Phase 3 features while Phase 1 is incomplete.
+Mark phases as "In Progress" or "Done" in CLAUDE.md as work progresses.
+
+---
+
+## When Stuck or Unsure
+
+- Re-read CLAUDE.md for context
+- Follow existing patterns in the codebase
+- Prefer simple and readable over clever
+- Ask for clarification rather than guessing on auth or database decisions

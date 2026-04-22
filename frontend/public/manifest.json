@@ -1,0 +1,16 @@
+{
+  "name": "DDinfoways Staff Management",
+  "short_name": "DD Staff",
+  "description": "Internal staff and work management system for DD Infoways Limited.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0F172A",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
