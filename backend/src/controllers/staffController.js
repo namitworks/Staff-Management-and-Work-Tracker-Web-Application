@@ -10,7 +10,7 @@ const getAllStaff = async (req, res) => {
     }
     const [rows] = await pool.query(`
       SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
-             p.staff_id, p.phone, p.department, p.joining_date, p.avatar_url
+             p.phone, p.department, p.joining_date, p.avatar_url
       FROM users u
       LEFT JOIN staff_profiles p ON u.id = p.user_id
       WHERE u.is_deleted = 0 AND u.role != 'admin'
@@ -40,7 +40,7 @@ const getStaffById = async (req, res) => {
 
     const [rows] = await pool.query(`
       SELECT u.id, u.name, u.email, u.role, u.status, u.created_at,
-             p.staff_id, p.phone, p.address, p.department, p.joining_date, p.emergency_contact, p.avatar_url
+             p.phone, p.address, p.department, p.joining_date, p.emergency_contact, p.avatar_url
       FROM users u
       LEFT JOIN staff_profiles p ON u.id = p.user_id
       WHERE u.id = ? AND u.is_deleted = 0

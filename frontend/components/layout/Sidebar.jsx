@@ -13,7 +13,8 @@ import {
   TrendingUp, 
   Banknote, 
   Settings,
-  LogOut
+  LogOut,
+  CreditCard
 } from "lucide-react";
 import { removeToken } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -23,6 +24,7 @@ import api from "@/lib/api";
 const navItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Staff", href: "/staff", icon: Users },
+  { name: "ID Cards", href: "/staff/idcards", icon: CreditCard },
   { name: "Tasks", href: "/tasks", icon: CheckSquare },
   { name: "Projects", href: "/projects", icon: FolderKanban },
   { name: "Attendance", href: "/attendance", icon: CalendarClock },
@@ -56,6 +58,7 @@ export default function Sidebar({ isOpen, onClose }) {
 
   const filteredNavItems = navItems.filter(item => {
     if (item.name === "Staff") return user?.role === 'admin' || user?.role === 'team_lead';
+    if (item.name === "ID Cards") return user?.role === 'admin';
     return true;
   });
 

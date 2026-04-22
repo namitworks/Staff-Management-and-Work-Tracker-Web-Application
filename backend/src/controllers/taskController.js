@@ -8,9 +8,10 @@ const getAllTasks = async (req, res) => {
     const role = req.user.role;
 
     let query = `
-      SELECT t.*, u.name as assignee_name, u.avatar_url, p.name as project_name
+      SELECT t.*, u.name as assignee_name, sp.avatar_url, p.name as project_name
       FROM tasks t
       LEFT JOIN users u ON t.assigned_to = u.id
+      LEFT JOIN staff_profiles sp ON u.id = sp.user_id
       LEFT JOIN projects p ON t.project_id = p.id
       WHERE t.is_deleted = 0
     `;

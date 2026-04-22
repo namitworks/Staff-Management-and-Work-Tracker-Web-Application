@@ -30,6 +30,64 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
   };
 
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const fetchNotifications = async () => {
+    try {
+      const { data } = await api.get("/notifications");
+      if (data.success) {
+        setNotifications(data.data.slice(0, 10)); // Only show last 10 in dropdown
+        setUnreadCount(data.unreadCount);
+      }
+    } catch (err) {
+      console.error("Failed to fetch notifications", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 60000); // Poll every 60s
+    return () => clearInterval(interval);
+  }, []);
+
+  const markAllAsRead = async () => {
+    try {
+      await api.put("/notifications/read-all");
+      fetchNotifications();
+    } catch (err) {
+      console.error("Failed to mark all as read", err);
+    }
+  };
+
+  const handleNotificationClick = async (notif) => {
+    try {
+      if (!notif.is_read) {
+        await api.put(`/notifications/${notif.id}/read`);
+        fetchNotifications();
+      }
+      setShowNotifications(false);
+      if (notif.link) {
+        window.location.href = notif.link;
+      }
+    } catch (err) {
+      console.error("Failed to handle notification click", err);
+    }
+  };
+
+  const getTimeAgo = (dateString) => {
+    const now = new Date();
+    const past = new Date(dateString);
+    const diffMs = now - past;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins} mins ago`;
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    return `${diffDays} days ago`;
+  };
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between h-[72px] px-4 md:px-8 glass shadow-sm transition-all duration-300 w-full">
@@ -51,7 +109,9 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
             className="relative p-2.5 text-slate-500 transition-all duration-200 rounded-full hover:bg-slate-100 hover:text-brand-orange"
           >
             <Bell className="w-5 h-5" />
-            <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-brand-orange rounded-full border-2 border-white"></span>
+            {unreadCount > 0 && (
+              <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-brand-orange rounded-full border-2 border-white"></span>
+            )}
           </button>
 
           {showNotifications && (
@@ -63,22 +123,50 @@ export default function Header({ toggleSidebar, isSidebarOpen }) {
               <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-premium border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 origin-top-right">
                 <div className="p-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
                   <h3 className="font-bold text-brand-navy">Notifications</h3>
-                  <span className="text-[10px] bg-brand-orange/10 text-brand-orange px-2 py-0.5 rounded-full font-bold">2 NEW</span>
+                  {unreadCount > 0 && (
+                    <span className="text-[10px] bg-brand-orange/10 text-brand-orange px-2 py-0.5 rounded-full font-bold">
+                      {unreadCount} NEW
+                    </span>
+                  )}
                 </div>
                 <div className="max-h-[300px] overflow-y-auto">
-                  <div className="p-4 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors">
-                    <p className="text-sm font-semibold text-slate-800">Welcome to DD Infoways!</p>
-                    <p className="text-xs text-slate-500 mt-1">Your account has been successfully set up.</p>
-                    <p className="text-[10px] text-brand-orange mt-2 font-medium">Just now</p>
-                  </div>
-                  <div className="p-4 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors opacity-60">
-                    <p className="text-sm font-semibold text-slate-800">System Update</p>
-                    <p className="text-xs text-slate-500 mt-1">New dashboard features have been released.</p>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium">2 hours ago</p>
-                  </div>
+                  {notifications.length === 0 ? (
+                    <div className="p-8 text-center text-slate-400 text-xs">
+                      No notifications yet
+                    </div>
+                  ) : (
+                    notifications.map((notif) => (
+                      <div 
+                        key={notif.id}
+                        onClick={() => handleNotificationClick(notif)}
+                        className={`p-4 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors ${!notif.is_read ? 'bg-brand-orange/[0.02]' : 'opacity-70'}`}
+                      >
+                        <p className={`text-sm ${!notif.is_read ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
+                          {notif.title}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">
+                          {notif.message}
+                        </p>
+                        <p className={`text-[10px] mt-2 font-medium ${!notif.is_read ? 'text-brand-orange' : 'text-slate-400'}`}>
+                          {getTimeAgo(notif.created_at)}
+                        </p>
+                      </div>
+                    ))
+                  )}
                 </div>
-                <div className="p-3 text-center bg-slate-50/30 border-t border-slate-50">
-                  <button className="text-xs font-bold text-brand-navy hover:text-brand-orange transition-colors">Mark all as read</button>
+                <div className="p-3 flex items-center justify-between bg-slate-50/30 border-t border-slate-50 px-4">
+                  <button 
+                    onClick={markAllAsRead}
+                    className="text-[11px] font-bold text-brand-navy hover:text-brand-orange transition-colors"
+                  >
+                    Mark all as read
+                  </button>
+                  <a 
+                    href="/notifications" 
+                    className="text-[11px] font-bold text-brand-orange hover:underline"
+                  >
+                    View all
+                  </a>
                 </div>
               </div>
             </>
